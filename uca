@@ -24,6 +24,7 @@
 #   • xAI Grok           (grok update)
 #   • OMP                (omp update)
 #   • Cursor Agent       (cursor-agent update)
+#   • OpenCode           (ownership-aware: bun / npm / opencode upgrade)
 #
 # Usage:
 #   uca                  Update all agent harnesses sequentially
@@ -266,6 +267,11 @@ get_harness_version() {
       cbin=$(resolve_cursor_binary)
       [ -n "$cbin" ] && raw=$("$cbin" --version 2>/dev/null || true)
       ;;
+    opencode)
+      local obin
+      obin=$(resolve_opencode_binary)
+      [ -n "$obin" ] && raw=$("$obin" --version 2>/dev/null || true)
+      ;;
   esac
 
   if [ -n "$raw" ]; then
@@ -293,6 +299,10 @@ smoke_test_harness() {
       local cbin
       cbin=$(resolve_cursor_binary)
       [ -n "$cbin" ] && "$cbin" --help &>/dev/null && return 0 ;;
+    opencode)
+      local obin
+      obin=$(resolve_opencode_binary)
+      [ -n "$obin" ] && "$obin" --help &>/dev/null && return 0 ;;
   esac
   return 1
 }
@@ -304,8 +314,9 @@ smoke_test_harness() {
 # ~/.local/bin/codex. Blindly running `bun install -g` would create a
 # second codex under ~/.bun/bin and leave the active install stale.
 # So: resolve the active binary, classify its owner by realpath, and
-# update through the matching method only.
-CODEX_UPDATE_WARNING=""
+# update through the matching method only. OpenCode (npm package
+# opencode-ai) ships through the same channels and uses the same machinery.
+HARNESS_UPDATE_WARNING=""
 
 resolve_codex_binary() {
   local p
@@ -315,16 +326,30 @@ resolve_codex_binary() {
   [ -n "$p" ] && echo "$p"
 }
 
+# OpenCode's own installer (curl -fsSL https://opencode.ai/install | bash)
+# puts the binary in ~/.opencode/bin; npm and bun installs link it from
+# their global bin directories.
+resolve_opencode_binary() {
+  local p c
+  p=$(command -v opencode 2>/dev/null || true)
+  for c in "$HOME/.local/bin/opencode" "$HOME/.opencode/bin/opencode" "$HOME/.bun/bin/opencode"; do
+    [ -z "$p" ] && [ -x "$c" ] && p="$c"
+  done
+  [ -n "$p" ] && echo "$p"
+}
+
 resolve_real_path() {
   local p="$1"
   realpath "$p" 2>/dev/null || readlink -f "$p" 2>/dev/null || echo "$p"
 }
 
-classify_codex_owner() {
+# bun links ~/.bun/bin/<cmd> into ~/.bun/install/global/node_modules, so the
+# realpath of a bun-owned binary lands anywhere under ~/.bun, not only in
+# ~/.bun/bin.
+classify_pkg_owner() {
   local real="$1" npm_root
   case "$real" in
-    "$HOME/.bun/bin/"*)                  echo "bun";        return 0 ;;
-    "$HOME/.codex/packages/standalone/"*) echo "standalone"; return 0 ;;
+    "$HOME/.bun/"*) echo "bun"; return 0 ;;
   esac
   if command -v npm &>/dev/null; then
     npm_root=$(npm root -g 2>/dev/null || true)
@@ -334,6 +359,13 @@ classify_codex_owner() {
     fi
   fi
   echo "unknown"
+}
+
+classify_codex_owner() {
+  case "$1" in
+    "$HOME/.codex/packages/standalone/"*) echo "standalone"; return 0 ;;
+  esac
+  classify_pkg_owner "$1"
 }
 
 binary_mtime() {
@@ -368,31 +400,31 @@ version_lt() {
   return 1
 }
 
-# The registry's current `latest` dist-tag for @openai/codex, read through the
+# The registry's current `latest` dist-tag for PKG, read through the
 # package manager that owns the install (so a custom registry in npmrc/bunfig
 # is honoured). Neither `npm view` nor `bun info` is subject to release-age
 # gating, so this is the real tag even when the install path is gated.
 # Prints nothing when the lookup fails or returns something that is not a
 # version.
-codex_registry_latest() {
-  local owner="$1" out=""
+pkg_registry_latest() {
+  local owner="$1" pkg="$2" out=""
   case "$owner" in
-    npm) command -v npm &>/dev/null && out=$(npm view @openai/codex dist-tags.latest 2>/dev/null || true) ;;
-    bun) command -v bun &>/dev/null && out=$(bun info @openai/codex dist-tags.latest 2>/dev/null || true) ;;
+    npm) command -v npm &>/dev/null && out=$(npm view "$pkg" dist-tags.latest 2>/dev/null || true) ;;
+    bun) command -v bun &>/dev/null && out=$(bun info "$pkg" dist-tags.latest 2>/dev/null || true) ;;
   esac
   out=$(grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?(-[a-zA-Z0-9.]+)?' <<< "$out" | head -1)
   [ -n "$out" ] && echo "$out"
 }
 
-update_codex() {
-  CODEX_UPDATE_WARNING=""
-  local bin real owner ver_before ver_after mtime_before mtime_after ret=0
+# update_owned_harness CMD PKG BIN OWNER SELF_UPDATE_ARGS...
+# Updates the CMD install at BIN through OWNER (bun / npm), or, for any other
+# owner, by running BIN with SELF_UPDATE_ARGS (the harness's own updater).
+update_owned_harness() {
+  local cmd="$1" pkg="$2" bin="$3" owner="$4"; shift 4
+  HARNESS_UPDATE_WARNING=""
+  local real ver_before ver_after mtime_before mtime_after ret=0
 
-  bin=$(resolve_codex_binary)
-  [ -z "$bin" ] && return 1
   real=$(resolve_real_path "$bin")
-  owner=$(classify_codex_owner "$real")
-
   ver_before=$("$bin" --version 2>/dev/null || true)
   mtime_before=$(binary_mtime "$real")
 
@@ -410,9 +442,9 @@ update_codex() {
   installed=$(extract_clean_version "$ver_before")
   case "$owner" in
     bun|npm)
-      latest=$(codex_registry_latest "$owner")
+      latest=$(pkg_registry_latest "$owner" "$pkg")
       if [ -n "$latest" ] && [ -n "$installed" ] && version_lt "$latest" "$installed"; then
-        CODEX_UPDATE_WARNING="Registry 'latest' for @openai/codex is $latest, older than the installed $installed — leaving the $owner install alone rather than downgrading."
+        HARNESS_UPDATE_WARNING="Registry 'latest' for $pkg is $latest, older than the installed $installed — leaving the $owner install alone rather than downgrading."
         return 0
       fi
       ;;
@@ -420,20 +452,20 @@ update_codex() {
 
   case "$owner" in
     bun)
-      bun install -g @openai/codex@latest --minimum-release-age=0 --no-cache 2>&1 || ret=$? ;;
+      bun install -g "$pkg@latest" --minimum-release-age=0 --no-cache 2>&1 || ret=$? ;;
     npm)
-      npm install -g @openai/codex@latest --prefer-online --min-release-age=0 2>&1 || ret=$? ;;
-    standalone|*)
-      # Standalone installer (or unknown ownership): use codex's own
+      npm install -g "$pkg@latest" --prefer-online --min-release-age=0 2>&1 || ret=$? ;;
+    *)
+      # Standalone installer (or unknown ownership): use the harness's own
       # updater rather than guessing a package manager.
-      "$bin" update 2>&1 || ret=$? ;;
+      "$bin" "$@" 2>&1 || ret=$? ;;
   esac
   [ "$ret" -ne 0 ] && return "$ret"
 
   # Post-verify: re-resolve the active binary and confirm the install we
   # updated is the one PATH actually serves.
   local active active_real
-  active=$(command -v codex 2>/dev/null || echo "$bin")
+  active=$(command -v "$cmd" 2>/dev/null || echo "$bin")
   active_real=$(resolve_real_path "$active")
   real=$(resolve_real_path "$bin")   # symlink target may have moved (standalone version dirs)
   ver_after=$("$active" --version 2>/dev/null || true)
@@ -442,14 +474,30 @@ update_codex() {
   local after
   after=$(extract_clean_version "$ver_after")
   if [ "$active_real" != "$real" ]; then
-    CODEX_UPDATE_WARNING="Updated codex at $bin ($owner), but 'codex' on PATH resolves to $active — the updated install may be shadowed by an earlier-PATH binary."
+    HARNESS_UPDATE_WARNING="Updated $cmd at $bin ($owner), but '$cmd' on PATH resolves to $active — the updated install may be shadowed by an earlier-PATH binary."
   elif [ -n "$after" ] && [ -n "$installed" ] && version_lt "$after" "$installed"; then
-    CODEX_UPDATE_WARNING="codex went from $installed to $after ($owner) — a DOWNGRADE. '@latest' is probably being resolved through a release-age gate (npm min-release-age / bun minimumReleaseAge) or a stale registry cache; check '$owner' config and reinstall $installed by hand."
+    HARNESS_UPDATE_WARNING="$cmd went from $installed to $after ($owner) — a DOWNGRADE. '@latest' is probably being resolved through a release-age gate (npm min-release-age / bun minimumReleaseAge) or a stale registry cache; check '$owner' config and reinstall $installed by hand."
     return 1
   elif [ "$ver_after" = "$ver_before" ] && [ -n "$mtime_before" ] && [ "$mtime_after" = "$mtime_before" ]; then
     : # untouched binary: already up to date (normal) — caller reports version status
   fi
   return 0
+}
+
+update_codex() {
+  HARNESS_UPDATE_WARNING=""
+  local bin
+  bin=$(resolve_codex_binary)
+  [ -z "$bin" ] && return 1
+  update_owned_harness codex @openai/codex "$bin" "$(classify_codex_owner "$(resolve_real_path "$bin")")" update
+}
+
+update_opencode() {
+  HARNESS_UPDATE_WARNING=""
+  local bin
+  bin=$(resolve_opencode_binary)
+  [ -z "$bin" ] && return 1
+  update_owned_harness opencode opencode-ai "$bin" "$(classify_pkg_owner "$(resolve_real_path "$bin")")" upgrade
 }
 
 # Cursor Agent CLI
@@ -503,6 +551,8 @@ update_harness() {
       local cbin
       cbin=$(resolve_cursor_binary) || return 1
       "$cbin" update 2>&1 ;;
+    opencode)
+      update_opencode ;;
   esac
 }
 
@@ -610,6 +660,14 @@ write_state() {
       "previous_version": "${PV_CURSOR:-${V_CURSOR:-}}",
       "last_status": "${ST_CURSOR:-up_to_date}",
       "last_checked_at": "$last_run_iso"
+    },
+    "opencode": {
+      "name": "OpenCode",
+      "installed": $( [ -n "${V_OPENCODE:-}" ] && echo "true" || echo "false" ),
+      "current_version": "${V_OPENCODE:-}",
+      "previous_version": "${PV_OPENCODE:-${V_OPENCODE:-}}",
+      "last_status": "${ST_OPENCODE:-up_to_date}",
+      "last_checked_at": "$last_run_iso"
     }
   }
 }
@@ -682,7 +740,7 @@ show_status_dashboard() {
   local json_mode="${1:-0}"
   
   # Parallel Fast Probing using subshells
-  V_CLAUDE="" V_CODEX="" V_AGY="" V_GROK="" V_OMP="" V_CURSOR=""
+  V_CLAUDE="" V_CODEX="" V_AGY="" V_GROK="" V_OMP="" V_CURSOR="" V_OPENCODE=""
 
   local tmp_dir="$STATE_DIR/.probe.$$"
   mkdir -p "$tmp_dir"
@@ -693,6 +751,7 @@ show_status_dashboard() {
   ( get_harness_version "grok"   > "$tmp_dir/grok" ) &
   ( get_harness_version "omp"    > "$tmp_dir/omp" ) &
   ( get_harness_version "cursor" > "$tmp_dir/cursor" ) &
+  ( get_harness_version "opencode" > "$tmp_dir/opencode" ) &
   wait
 
   [ -f "$tmp_dir/claude" ] && V_CLAUDE=$(cat "$tmp_dir/claude")
@@ -701,6 +760,7 @@ show_status_dashboard() {
   [ -f "$tmp_dir/grok" ]   && V_GROK=$(cat "$tmp_dir/grok")
   [ -f "$tmp_dir/omp" ]    && V_OMP=$(cat "$tmp_dir/omp")
   [ -f "$tmp_dir/cursor" ] && V_CURSOR=$(cat "$tmp_dir/cursor")
+  [ -f "$tmp_dir/opencode" ] && V_OPENCODE=$(cat "$tmp_dir/opencode")
   rm -rf "$tmp_dir" 2>/dev/null || true
 
   # Disk Space
@@ -852,6 +912,7 @@ show_status_dashboard() {
   render_harness_row "xAI Grok"          "grok"   "$V_GROK"
   render_harness_row "OMP"               "omp"    "$V_OMP"
   render_harness_row "Cursor Agent"      "cursor" "$V_CURSOR"
+  render_harness_row "OpenCode"          "opencode" "$V_OPENCODE"
 
   echo -e "${C_GRAY}${subsep}${C_RESET}\n"
 
@@ -941,7 +1002,7 @@ run_all_updates() {
   fi
 
   # Harness update loop
-  local harnesses=("claude" "codex" "agy" "grok" "omp" "cursor")
+  local harnesses=("claude" "codex" "agy" "grok" "omp" "cursor" "opencode")
   if [ -n "$target_key" ]; then
     harnesses=("$target_key")
   fi
@@ -963,6 +1024,7 @@ run_all_updates() {
   PV_GROK=$(read_harness_version_from_state "grok")
   PV_OMP=$(read_harness_version_from_state "omp")
   PV_CURSOR=$(read_harness_version_from_state "cursor")
+  PV_OPENCODE=$(read_harness_version_from_state "opencode")
 
   for h in "${harnesses[@]}"; do
     local h_name=""
@@ -973,6 +1035,7 @@ run_all_updates() {
       grok)   h_name="xAI Grok" ;;
       omp)    h_name="OMP" ;;
       cursor) h_name="Cursor Agent" ;;
+      opencode) h_name="OpenCode" ;;
     esac
 
     local v_before
@@ -990,7 +1053,7 @@ run_all_updates() {
     [ "$quiet" -eq 0 ] && echo -ne "  ${C_BLUE}⟳${C_RESET} Updating ${C_BOLD}${h_name}${C_RESET}..."
 
     local h_start h_dur ret
-    CODEX_UPDATE_WARNING=""
+    HARNESS_UPDATE_WARNING=""
     h_start=$(date +%s)
     if update_harness "$h" >/dev/null 2>&1; then
       ret=0
@@ -1016,6 +1079,7 @@ run_all_updates() {
       grok)   V_GROK="$v_after";   ST_GROK="up_to_date" ;;
       omp)    V_OMP="$v_after";    ST_OMP="up_to_date" ;;
       cursor) V_CURSOR="$v_after"; ST_CURSOR="up_to_date" ;;
+      opencode) V_OPENCODE="$v_after"; ST_OPENCODE="up_to_date" ;;
     esac
 
     # A version that moved backwards is not an update: the harness's own
@@ -1031,6 +1095,7 @@ run_all_updates() {
         grok)   ST_GROK="error" ;;
         omp)    ST_OMP="error" ;;
         cursor) ST_CURSOR="error" ;;
+        opencode) ST_OPENCODE="error" ;;
       esac
       if [ "$quiet" -eq 0 ]; then
         echo -e "\r  ${C_YELLOW}⚠️${C_RESET} $(pad_str "${C_BOLD}${h_name}${C_RESET}" 20) ${C_BOLD}${C_YELLOW}DOWNGRADED${C_RESET}: From version ${C_YELLOW}${v_before}${C_RESET} to version ${C_YELLOW}${v_after}${C_RESET} (${h_dur}s)"
@@ -1050,6 +1115,7 @@ run_all_updates() {
         grok)   ST_GROK="updated" ;;
         omp)    ST_OMP="updated" ;;
         cursor) ST_CURSOR="updated" ;;
+        opencode) ST_OPENCODE="updated" ;;
       esac
 
       if [ "$quiet" -eq 0 ]; then
@@ -1069,6 +1135,7 @@ run_all_updates() {
           grok)   ST_GROK="error" ;;
           omp)    ST_OMP="error" ;;
           cursor) ST_CURSOR="error" ;;
+          opencode) ST_OPENCODE="error" ;;
         esac
         if [ "$quiet" -eq 0 ]; then
           echo -e "\r  ${C_YELLOW}⚠️${C_RESET} $(pad_str "${C_BOLD}${h_name}${C_RESET}" 20) ${C_YELLOW}Update Warning${C_RESET} (${v_after})"
@@ -1076,10 +1143,10 @@ run_all_updates() {
       fi
     fi
 
-    # Surface codex shadow-install warnings (issue #8) even though
-    # update_harness output itself is discarded.
-    if [ "$h" = "codex" ] && [ -n "$CODEX_UPDATE_WARNING" ] && [ "$quiet" -eq 0 ]; then
-      echo -e "     ${C_YELLOW}⚠ ${CODEX_UPDATE_WARNING}${C_RESET}"
+    # Surface codex/opencode shadow-install and downgrade warnings (issue #8)
+    # even though update_harness output itself is discarded.
+    if [ -n "$HARNESS_UPDATE_WARNING" ] && [ "$quiet" -eq 0 ]; then
+      echo -e "     ${C_YELLOW}⚠ ${HARNESS_UPDATE_WARNING}${C_RESET}"
     fi
   done
 
@@ -1441,7 +1508,7 @@ run_doctor_suite() {
 
   # 6. DET-HARNESS-SMOKE
   local broken_harnesses=()
-  for h in "claude" "codex" "agy" "grok" "omp" "cursor"; do
+  for h in "claude" "codex" "agy" "grok" "omp" "cursor" "opencode"; do
     local v
     v=$(get_harness_version "$h")
     if [ -n "$v" ] && ! smoke_test_harness "$h"; then
@@ -1661,6 +1728,8 @@ EOF
       bin_path="$HOME/.bun/bin/$bin_cand"
     elif [ -x "$HOME/.grok/bin/$bin_cand" ]; then
       bin_path="$HOME/.grok/bin/$bin_cand"
+    elif [ -x "$HOME/.opencode/bin/$bin_cand" ]; then
+      bin_path="$HOME/.opencode/bin/$bin_cand"
     fi
 
     if [ -n "$bin_path" ]; then
@@ -1688,6 +1757,7 @@ EOF
   check_harness_doc "xAI Grok"           "grok"   "grok"
   check_harness_doc "OMP"                "omp"    "omp"
   check_harness_doc "Cursor Agent"       "cursor" "cursor-agent"
+  check_harness_doc "OpenCode"           "opencode" "opencode"
 
   if [ "${#findings[@]}" -gt 0 ]; then
     echo -e "\n  ${C_YELLOW}⚠️  ${#findings[@]} issues detected. Run '${C_BOLD}uca doctor --fix${C_RESET}' to auto-remediate.${C_RESET}"
@@ -1973,7 +2043,7 @@ main() {
         echo "UCA — Universal Coding Agent Harness Updater & Version Tracker"
         echo ""
         echo "Usage:"
-        echo "  uca                 Update all agent harnesses (claude, codex, agy, grok, omp, cursor)"
+        echo "  uca                 Update all agent harnesses (claude, codex, agy, grok, omp, cursor, opencode)"
         echo "  ucas                Show status breakdown, version changes, and schedule"
         echo "  ucas -w, --watch    Interactive live auto-refreshing dashboard"
         echo "  uca <harness>       Update specific harness (e.g. 'uca omp', 'uca claude')"
@@ -2014,7 +2084,7 @@ main() {
       --ignore-disk-space) ign_disk=1 ;;
       --min-disk-mb=*)     min_d="${1#*=}" ;;
       --min-disk-mb)       shift; min_d="$1" ;;
-      claude|codex|agy|grok|omp|cursor) target="$1" ;;
+      claude|codex|agy|grok|omp|cursor|opencode) target="$1" ;;
       all) target="" ;;
     esac
     shift 2>/dev/null || break

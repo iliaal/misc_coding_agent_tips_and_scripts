@@ -7,7 +7,7 @@
 #   • Atomic locking with stale PID detection
 #   • Dual platform background services (systemd user timers on Linux, launchd on macOS)
 #   • Automatic shell integration for bash, zsh, and fish
-#   • AI agent harness detection (Claude Code, Codex, Antigravity, Grok, OMP, Cursor Agent)
+#   • AI agent harness detection (Claude Code, Codex, Antigravity, Grok, OMP, Cursor Agent, OpenCode)
 #   • Post-install diagnostics & self-test
 #
 # Usage:
@@ -354,6 +354,7 @@ AGY_VER="Not installed"
 GROK_VER="Not installed"
 OMP_VER="Not installed"
 CURSOR_VER="Not installed"
+OPENCODE_VER="Not installed"
 
 extract_clean_ver() {
   local raw="$1"
@@ -389,6 +390,10 @@ fi
 if command -v cursor-agent &>/dev/null || [ -f "$HOME/.local/bin/cursor-agent" ]; then
   raw=$(cursor-agent --version 2>/dev/null || "$HOME/.local/bin/cursor-agent" --version 2>/dev/null || echo "Found")
   CURSOR_VER=$(extract_clean_ver "$raw")
+fi
+if command -v opencode &>/dev/null || [ -f "$HOME/.opencode/bin/opencode" ]; then
+  raw=$(opencode --version 2>/dev/null || "$HOME/.opencode/bin/opencode" --version 2>/dev/null || echo "Found")
+  OPENCODE_VER=$(extract_clean_ver "$raw")
 fi
 
 # Acquire / Install Binary
@@ -529,14 +534,15 @@ if [ "$QUIET" -eq 0 ]; then
     "  • xAI Grok:             \033[38;5;245m${GROK_VER}\033[0m"
     "  • OMP:                  \033[38;5;245m${OMP_VER}\033[0m"
     "  • Cursor Agent:         \033[38;5;245m${CURSOR_VER}\033[0m"
+    "  • OpenCode:             \033[38;5;245m${OPENCODE_VER}\033[0m"
     ""
     "\033[1;38;5;252mBackground Schedule:\033[0m \033[38;5;42mActive\033[0m (every 3 hours)"
     "\033[1;38;5;252mState Directory:\033[0m     \033[38;5;245m${STATE_DIR}\033[0m"
     ""
     "\033[1;38;5;39mQuick Commands:\033[0m"
-    "  \033[1;38;5;252muca\033[0m         Update all 6 harnesses sequentially"
+    "  \033[1;38;5;252muca\033[0m         Update all 7 harnesses sequentially"
     "  \033[1;38;5;252mucas\033[0m        Open status dashboard with version transitions"
-    "  \033[1;38;5;252muca omp\033[0m     Update only OMP (or claude, codex, agy, grok, cursor)"
+    "  \033[1;38;5;252muca omp\033[0m     Update only OMP (or claude, codex, agy, grok, cursor, opencode)"
     "  \033[1;38;5;252muca doctor\033[0m  Run environment & harness diagnostics"
     ""
     "\033[3;38;5;245mTo uninstall: ./install-uca.sh --uninstall\033[0m"
@@ -553,14 +559,15 @@ if [ "$QUIET" -eq 0 ]; then
       gum_text "  • xAI Grok:             ${GROK_VER}" --foreground 245
       gum_text "  • OMP:                  ${OMP_VER}" --foreground 245
       gum_text "  • Cursor Agent:         ${CURSOR_VER}" --foreground 245
+      gum_text "  • OpenCode:             ${OPENCODE_VER}" --foreground 245
       echo ""
       echo "$(gum_text 'Background Schedule:' --foreground 252 --bold) $(gum_text 'Active (every 3 hours)' --foreground 42 --bold)"
       echo "$(gum_text 'State Directory:' --foreground 252 --bold)     $(gum_text "$STATE_DIR" --foreground 245)"
       echo ""
       gum_text "Quick Commands:" --foreground 39 --bold
-      echo "  $(gum_text 'uca' --bold --foreground 252)         Update all 6 harnesses sequentially"
+      echo "  $(gum_text 'uca' --bold --foreground 252)         Update all 7 harnesses sequentially"
       echo "  $(gum_text 'ucas' --bold --foreground 252)        Open status dashboard with version transitions"
-      echo "  $(gum_text 'uca omp' --bold --foreground 252)     Update only OMP (or claude, codex, agy, grok, cursor)"
+      echo "  $(gum_text 'uca omp' --bold --foreground 252)     Update only OMP (or claude, codex, agy, grok, cursor, opencode)"
       echo "  $(gum_text 'uca doctor' --bold --foreground 252)  Run environment & harness diagnostics"
       echo ""
       gum_text "To uninstall: ./install-uca.sh --uninstall" --foreground 245 --italic

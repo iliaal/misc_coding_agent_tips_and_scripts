@@ -1,6 +1,6 @@
 # Universal Coding Agent (UCA) Harness Updater and Status Dashboard
 
-UCA manages updates, version tracking, and background scheduling for six AI coding agent harnesses: **Claude Code**, **OpenAI Codex**, **Google Antigravity (AGY)**, **xAI Grok**, **OMP**, and **Cursor Agent**.
+UCA manages updates, version tracking, and background scheduling for seven AI coding agent harnesses: **Claude Code**, **OpenAI Codex**, **Google Antigravity (AGY)**, **xAI Grok**, **OMP**, **Cursor Agent**, and **OpenCode**.
 
 It runs as a standalone, zero-dependency Bash script with a memory footprint under 2MB and execution startup under 5ms. It includes automatic 3-hour background scheduling, terminal dashboard formatting with ANSI fallback, atomic locking, pre-flight disk space protection, and a self-healing diagnostic system.
 
@@ -34,8 +34,9 @@ cd misc_coding_agent_tips_and_scripts
 | **xAI Grok** | `~/.grok/bin/grok` | `grok update` |
 | **OMP** | `~/.bun/bin/omp` | `omp update` |
 | **Cursor Agent** | `~/.local/bin/cursor-agent` (or `agent` when it resolves into `~/.local/share/cursor-agent/`) | `cursor-agent update` |
+| **OpenCode** | active `opencode` on PATH (or `~/.opencode/bin/opencode`) | Ownership-aware: `bun install -g opencode-ai` if the resolved binary lives under `~/.bun`, `npm install -g opencode-ai` if under the npm global prefix, `opencode upgrade` for the curl installer (`~/.opencode/bin/`), Homebrew, or unknown installs |
 
-For the package-manager-owned Codex paths, UCA never downgrades. npm (`min-release-age` in `.npmrc`, npm 11+) and bun (`minimumReleaseAge` in `bunfig.toml`) can be configured to ignore versions published within the last N days; under such a gate an `@latest` install does not fail, it quietly resolves to the newest version that is old enough, which can be older than what is installed. UCA therefore reads the registry's real `latest` tag first (`npm view` / `bun info` are not gated) and skips the update with a note if that tag is behind the installed version, then installs with the gate and the cached-packument staleness check overridden for that one package (`--prefer-online --min-release-age=0` for npm, `--minimum-release-age=0 --no-cache` for bun). If a harness still comes back older than it was, the run reports `DOWNGRADED` and fails instead of announcing an update.
+For the package-manager-owned Codex and OpenCode paths, UCA never downgrades. npm (`min-release-age` in `.npmrc`, npm 11+) and bun (`minimumReleaseAge` in `bunfig.toml`) can be configured to ignore versions published within the last N days; under such a gate an `@latest` install does not fail, it quietly resolves to the newest version that is old enough, which can be older than what is installed. UCA therefore reads the registry's real `latest` tag first (`npm view` / `bun info` are not gated) and skips the update with a note if that tag is behind the installed version, then installs with the gate and the cached-packument staleness check overridden for that one package (`--prefer-online --min-release-age=0` for npm, `--minimum-release-age=0 --no-cache` for bun). If a harness still comes back older than it was, the run reports `DOWNGRADED` and fails instead of announcing an update.
 
 Cursor Agent versions are `<date>-<git hash>` (for example `2026.09.10-fd3934a`). Only the date part is ordered; a same-day rebuild with a different hash is reported as an update, never as a downgrade.
 
@@ -77,6 +78,7 @@ uca codex     # Update only OpenAI Codex
 uca agy       # Update only Google Antigravity
 uca grok      # Update only xAI Grok
 uca cursor    # Update only Cursor Agent
+uca opencode  # Update only OpenCode
 ```
 
 Dry run (check versions without applying changes):
@@ -286,7 +288,7 @@ On version upgrades, UCA sends a desktop alert via macOS `osascript` or Linux `n
 
 ```text
 Usage:
-  uca                 Update all agent harnesses (claude, codex, agy, grok, omp, cursor)
+  uca                 Update all agent harnesses (claude, codex, agy, grok, omp, cursor, opencode)
   ucas                Show status breakdown, version changes, and schedule
   ucas -w, --watch    Interactive live auto-refreshing dashboard
   ucas -f, --fast     Probe versions in parallel (sub-second discovery)

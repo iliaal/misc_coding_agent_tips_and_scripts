@@ -10,7 +10,7 @@ This project has no formal versioning or GitHub Releases. There are no tags. Cha
 
 ### Universal Coding Agent (UCA) Harness Updater and Status Dashboard (UCAS)
 
-A tool for managing updates and version telemetry across six AI coding agent harnesses: **Claude Code**, **OpenAI Codex**, **Google Antigravity**, **xAI Grok**, **OMP**, and **Cursor Agent**. Includes automatic 3-hour background scheduling (systemd user timers on Linux and launchd on macOS), terminal dashboard visualization with ANSI fallback, live version change tracking (`"From version xyz to version abc"`), atomic locking with stale PID recovery, and health diagnostics (`uca doctor`).
+A tool for managing updates and version telemetry across seven AI coding agent harnesses: **Claude Code**, **OpenAI Codex**, **Google Antigravity**, **xAI Grok**, **OMP**, **Cursor Agent**, and **OpenCode**. Includes automatic 3-hour background scheduling (systemd user timers on Linux and launchd on macOS), terminal dashboard visualization with ANSI fallback, live version change tracking (`"From version xyz to version abc"`), atomic locking with stale PID recovery, and health diagnostics (`uca doctor`).
 
 **Initial release & feature expansion** (2026-08-29):
 - Add `uca` (zero-dependency pure-Bash updater, version telemetry engine, interactive watch mode, smoke test guard, notifications, log viewer, and in-binary uninstaller)
@@ -19,6 +19,17 @@ A tool for managing updates and version telemetry across six AI coding agent har
 - Add `install-uca.sh` (workmanship-compliant installer with preflight, atomic lock, and diagnostics)
 - Add `uninstall-uca.sh` (dedicated standalone uninstaller with Gum confirmation and service teardown)
 - Add `UNIVERSAL_CODING_AGENT_HARNESS_UPDATER.md` (comprehensive documentation guide)
+
+**OpenCode support** (2026-09-23):
+- Add OpenCode as a seventh harness (`uca opencode`). It uses the same ownership-aware updater as
+  Codex: an npm- or bun-owned install (package `opencode-ai`) is updated with
+  `npm install -g opencode-ai@latest --prefer-online --min-release-age=0` or
+  `bun install -g opencode-ai@latest --minimum-release-age=0 --no-cache`, after checking that the
+  registry `latest` tag is not behind the installed version. The curl installer
+  (`~/.opencode/bin/`), Homebrew, and unknown installs go through `opencode upgrade`.
+- bun ownership is now classified by any realpath under `~/.bun`, since bun links
+  `~/.bun/bin/<cmd>` into `~/.bun/install/global/node_modules`. This applies to Codex too.
+- Regression test: `tests/test-uca-opencode.sh`
 
 **Cursor Agent support** (2026-09-15):
 - Add the Cursor Agent CLI as a sixth harness (`uca cursor`). The binary is resolved as
