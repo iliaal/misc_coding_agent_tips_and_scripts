@@ -124,11 +124,17 @@ grep -q 'a DOWNGRADE' "$OUT" || { cat "$OUT"; fail "downgrade-anyway: codex-spec
 if grep -q 'UPDATED' "$OUT"; then cat "$OUT"; fail "downgrade-anyway: reported as UPDATED"; fi
 grep -q '"last_status": "error"' "$HOME_DIR/.local/share/uca/state.json" || fail "downgrade-anyway: state.json does not record the error"
 
-# 4. Already current: plain up-to-date path still works and still refreshes.
+# 4. Already current: leave the executable available to running sessions.
 run_uca current 0.153.4 0.153.4 0.153.4
 [ "$RC" -eq 0 ] || { cat "$OUT"; fail "current exited $RC"; }
 grep -q 'Up to date' "$OUT" || { cat "$OUT"; fail "current: not reported as up to date"; }
-[ -f "$WORK/npm.log" ] || fail "current: npm install should still run (equal versions are not a downgrade)"
+[[ ! -f ${WORK}/npm.log ]] || fail "current: npm install must not replace the current executable"
+
+run_uca registry-unavailable 0.153.2 '' 0.151.0 0.153.4
+[[ ${RC} == 0 ]] || { cat "${OUT}"; fail "registry-unavailable exited ${RC}"; }
+[[ -f ${WORK}/npm.log ]] || fail "registry-unavailable: missing registry version must not skip installation"
+read -r active_version <"${WORK}/codex_version"
+[[ ${active_version} == 0.153.4 ]] || fail "registry-unavailable: upgrade did not run"
 
 # 5. version_lt ordering, exercised in-process (uca's functions, main stripped).
 vlt() {

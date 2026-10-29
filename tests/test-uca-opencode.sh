@@ -131,6 +131,12 @@ grep -q -- 'bun install -g opencode-ai@latest --minimum-release-age=0 --no-cache
 [ ! -f "$WORK/self.log" ] || fail "bun-gated: opencode upgrade ran for a bun-owned install"
 [ "$(cat "$WORK/opencode_version")" = "1.18.32" ] || { cat "$OUT"; fail "bun-gated: expected 1.18.32"; }
 
+run_uca bun-current 1.18.32 1.18.32 1.18.20
+[[ ${RC} == 0 ]] || fail "current bun version check exited ${RC}"
+[[ $(cat "$WORK/opencode_version") == 1.18.32 ]] || fail "current bun version changed"
+[[ ! -f ${WORK}/pm.log ]] || fail 'current bun version was reinstalled'
+grep -q 'Up to date' "$OUT" || fail 'current bun version not reported as up to date'
+
 # 4. curl installer (~/.opencode/bin, not on PATH): its own `opencode upgrade`.
 use_layout curl
 run_uca curl 1.18.31 1.18.32 1.18.32

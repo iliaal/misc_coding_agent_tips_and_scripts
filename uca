@@ -443,6 +443,9 @@ update_owned_harness() {
   case "$owner" in
     bun|npm)
       latest=$(pkg_registry_latest "$owner" "$pkg")
+      if [[ -n ${latest} && ${latest} == "${installed}" ]]; then
+        return 0
+      fi
       if [ -n "$latest" ] && [ -n "$installed" ] && version_lt "$latest" "$installed"; then
         HARNESS_UPDATE_WARNING="Registry 'latest' for $pkg is $latest, older than the installed $installed — leaving the $owner install alone rather than downgrading."
         return 0
