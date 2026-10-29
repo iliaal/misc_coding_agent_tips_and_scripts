@@ -257,6 +257,20 @@ uca service install
 
 ## Safety Features
 
+### Argument validation and working directory
+
+Unknown update options or harness names, including `uca --version`, stop the run with exit status 2 before any tool is probed or updated. Use `uca --help` for supported commands. `--min-disk-mb` requires a nonnegative integer.
+
+UCA runs from `$HOME`, falling back to `/` if it cannot enter your home directory. Version probes and updates therefore work when your original working directory has been removed.
+
+### Shadowed installations
+
+During a normal or dry run, UCA warns when the executable it selects is older than another copy on PATH. The warning shows both paths and versions so you can inspect PATH order or relink the active executable. UCA does not delete or relink anything automatically.
+
+Symlinks to the same executable count as one installation. Cursor checks recognize `cursor-agent` and accept `agent` only when it resolves to a Cursor installation; same-day Cursor builds are unordered. These warnings also run before any check-only result returns.
+
+Each additional version probe requires `timeout` or `gtimeout`, uses a three-second deadline with a one-second kill grace, and ignores failed probes. Without either utility, UCA skips shadow detection. `--quiet` suppresses the advisory and its extra probes.
+
 ### Zero-Disk-Space Crash Prevention
 
 Before initiating package updates, UCA queries filesystem capacity with `df -Pk`. If available space drops below the threshold (default: 500 MB), UCA skips the update cycle, outputs a warning, and prevents corrupted downloads or partial installations.

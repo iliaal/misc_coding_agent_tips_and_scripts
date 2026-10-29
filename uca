@@ -536,6 +536,49 @@ harness_version_lt() {
   version_lt "$a" "$b"
 }
 
+shadowed_install_warning() {
+  local key="$1" active_v="$2" active cmd="$1" timer p real prior v
+  local best_v="" best_path="" duplicate
+  local -a seen commands
+  case "${key}" in
+    cursor) active=$(resolve_cursor_binary) || return 0; commands=(cursor-agent agent) ;;
+    codex) active=$(resolve_codex_binary) || return 0; commands=(codex) ;;
+    opencode) active=$(resolve_opencode_binary) || return 0; commands=(opencode) ;;
+    *) active=$(command -v "${cmd}" 2>/dev/null) || return 0; commands=("${cmd}") ;;
+  esac
+  [[ -n ${active_v} ]] || return 0
+  timer=$(command -v timeout 2>/dev/null || command -v gtimeout 2>/dev/null) || return 0
+  real=$(resolve_real_path "${active}")
+  seen=("${real}")
+  while IFS= read -r p; do
+    [[ -x ${p} ]] || continue
+    real=$(resolve_real_path "${p}")
+    if [[ ${key} == cursor && ${p} != */cursor-agent ]]; then
+      case "${real}" in
+        */cursor-agent/*|*/cursor-agent) ;;
+        *) continue ;;
+      esac
+    fi
+    duplicate=0
+    for prior in "${seen[@]}"; do
+      [[ ${real} == "${prior}" ]] && duplicate=1 && break
+    done
+    [[ ${duplicate} -eq 0 ]] || continue
+    seen+=("${real}")
+    v=$("${timer}" -k 1 3 "${p}" --version 2>/dev/null) || continue
+    v=$(extract_clean_version "${v}")
+    if harness_version_lt "${key}" "${active_v}" "${v}" && { [[ -z ${best_v} ]] || harness_version_lt "${key}" "${best_v}" "${v}"; }; then
+      best_v="${v}"
+      best_path="${p}"
+    fi
+  done < <(type -ap "${commands[@]}" 2>/dev/null || true)
+  if [[ -n ${best_v} ]]; then
+    printf "  Warning: %s uses %s (%s), but %s (%s) is newer and shadowed; check PATH order or relink the active executable.\n" \
+      "${key}" "${active}" "${active_v}" "${best_path}" "${best_v}"
+  fi
+  return 0
+}
+
 # Update Harness Command Executor
 update_harness() {
   local key="$1"
@@ -1043,6 +1086,9 @@ run_all_updates() {
 
     local v_before
     v_before=$(get_harness_version "$h")
+    if [[ ${quiet} -eq 0 && -n ${v_before} ]]; then
+      shadowed_install_warning "${h}" "${v_before}"
+    fi
     if [ -z "$v_before" ]; then
       [ "$quiet" -eq 0 ] && echo -e "  ${C_GRAY}•${C_RESET} $(pad_str "${C_BOLD}${h_name}${C_RESET}" 20) ${C_GRAY}Not installed${C_RESET} (skipped)"
       continue
@@ -1932,6 +1978,8 @@ run_uninstaller() {
 main() {
   local prog_name
   prog_name=$(basename "$0")
+  # Scheduled runs can inherit a directory that has since been removed.
+  cd -- "${HOME}" >/dev/null 2>&1 || cd / || return 1
   
   # Invocation as ucas or uca status
   if [ "$prog_name" = "ucas" ] || { [ $# -gt 0 ] && [[ "$1" =~ ^(status|s|st|-s|--status)$ ]]; }; then
@@ -2085,10 +2133,22 @@ main() {
       --no-smoke-test)     smoke_flag=0 ;;
       --no-gum)            NO_GUM=1 ;;
       --ignore-disk-space) ign_disk=1 ;;
-      --min-disk-mb=*)     min_d="${1#*=}" ;;
-      --min-disk-mb)       shift; min_d="$1" ;;
+      --min-disk-mb=*)
+        min_d="${1#*=}"
+        [[ ${min_d} =~ ^[0-9]+$ ]] || { echo 'uca: --min-disk-mb requires a nonnegative integer; no update was run.' >&2; return 2; }
+        ;;
+      --min-disk-mb)
+        shift
+        min_d="${1:-}"
+        [[ ${min_d} =~ ^[0-9]+$ ]] || { echo 'uca: --min-disk-mb requires a nonnegative integer; no update was run.' >&2; return 2; }
+        ;;
       claude|codex|agy|grok|omp|cursor|opencode) target="$1" ;;
       all) target="" ;;
+      --json) ;;
+      *)
+        printf "uca: unknown option or harness '%s'; no update was run. See 'uca --help'.\n" "$1" >&2
+        return 2
+        ;;
     esac
     shift 2>/dev/null || break
   done

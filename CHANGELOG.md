@@ -2,7 +2,7 @@
 
 All notable changes to [misc_coding_agent_tips_and_scripts](https://github.com/Dicklesworthstone/misc_coding_agent_tips_and_scripts) are documented here.
 
-This project has no formal versioning or GitHub Releases. There are no tags. Changes are tracked by commit history on the `main` branch. Each entry links directly to its commit on GitHub.
+Changes are tracked by commit history on the `main` branch. This fork also publishes date-tagged UCA releases (`uca-YYYY.MM.DD`); these releases cover the updater, not every script in the repository.
 
 ---
 
@@ -11,6 +11,13 @@ This project has no formal versioning or GitHub Releases. There are no tags. Cha
 ### Universal Coding Agent (UCA) Harness Updater and Status Dashboard (UCAS)
 
 A tool for managing updates and version telemetry across seven AI coding agent harnesses: **Claude Code**, **OpenAI Codex**, **Google Antigravity**, **xAI Grok**, **OMP**, **Cursor Agent**, and **OpenCode**. Includes automatic 3-hour background scheduling (systemd user timers on Linux and launchd on macOS), terminal dashboard visualization with ANSI fallback, live version change tracking (`"From version xyz to version abc"`), atomic locking with stale PID recovery, and health diagnostics (`uca doctor`).
+
+**UCA 2026.10.29**:
+- Rejected unknown update options and harness names with exit status 2 before probing or updating tools. Invalid or missing `--min-disk-mb` values also stop the run.
+- Fixed version probes and updates launched from a removed directory by switching to `$HOME`, with `/` as a fallback.
+- Added warnings when the active executable hides a newer installation on PATH. Warnings deduplicate symlinks, recognize Cursor's executable aliases, and compare Cursor builds by date. Additional version probes use `timeout` or `gtimeout` with a three-second deadline and a one-second kill grace; hosts without either utility skip these probes. Quiet runs suppress this advisory.
+- Avoided reinstalling npm- or bun-owned Codex and OpenCode when the installed version already matches the registry's latest version.
+- Adapted upstream commits `f6420e3`, `e1efd91`, and `571b476`; retained this fork's Cursor and OpenCode support.
 
 **Initial release & feature expansion** (2026-08-29):
 - Add `uca` (zero-dependency pure-Bash updater, version telemetry engine, interactive watch mode, smoke test guard, notifications, log viewer, and in-binary uninstaller)
